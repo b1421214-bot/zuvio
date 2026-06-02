@@ -32,18 +32,33 @@ def check_zuvio_status():
             status_report["status"] = "danger"
             status_report["message"] = "❌ Zuvio 登入失敗，請檢查 GitHub 密鑰設定。"
             return status_report
-    except:
-        status_report["status"] = "danger"
-        status_report["message"] = "❌ 連線到 Zuvio 伺服器異常。"
-        return status_report
-
+            
+# 2. 抓取課程列表 (加強防呆版)
     try:
         course_res = session.get("https://irs.zuvio.com.tw/course/list")
-        course_ids = list(set(re.findall(r'https://irs.zuvio.com.tw/student/course/([0-9]+)', course_res.text)))
+        
+        # 舊版抓取法
+        course_ids = re.findall(r'https://irs.zuvio.com.tw/student/course/([0-9]+)', course_res.text)
+        
+        # 新版防呆：如果上面抓不到，改抓網頁中所有包含數字的課程網址特徵
+        if not course_ids:
+            course_ids = re.findall(r'/student/course/([0-9]+)', course_res.text)
+            
+        # 再防呆：抓網頁中帶有 HTML 結構的 id
+        if not course_ids:
+            course_ids = re.findall(r'course_id="([0-9]+)"', course_res.text)
+
+        course_ids = list(set(course_ids))
         status_report["courses_checked"] = len(course_ids)
-    except:
+        
+        # 如果到這裡還是 0，代表根本沒登入成功或網頁完全不對
+        if len(course_ids) == 0:
+            status_report["status"] = "warning"
+            status_report["message"] = "⚠️ 登入成功，但抓不到任何課程 ID，請檢查 Zuvio 帳號內目前是否有課。"
+            
+    except Exception as e:
         status_report["status"] = "warning"
-        status_report["message"] = "⚠️ 登入成功，但無法獲取課程列表。"
+        status_report["message"] = f"⚠️ 獲取課程列表發生異常: {str(e)}"
         return status_report
 
     for c_id in course_ids:
