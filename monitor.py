@@ -38,30 +38,39 @@ def check_zuvio_status():
         status_report["message"] = f"❌ 連線到 Zuvio 伺服器異常: {str(e)}"
         return status_report
 
-    # 抓取課程列表 (多重防呆版)
+  # 抓取課程列表 (地毯式搜索終極版)
     try:
         course_res = session.get("https://irs.zuvio.com.tw/course/list")
         
-        # 嘗試三種不同的網頁結構抓取法，防止 Zuvio 改版抓不到
-        course_ids = re.findall(r'https://irs.zuvio.com.tw/student/course/([0-9]+)', course_res.text)
-        if not course_ids:
-            course_ids = re.findall(r'/student/course/([0-9]+)', course_res.text)
-        if not course_ids:
-            course_ids = re.findall(r'course_id="([0-9]+)"', course_res.text)
-
-        course_ids = list(set(course_ids))
+        # 1. 收集網頁裡所有可能是課程 ID 的數字
+        # 找所有包含 student/course/數字 的片段
+        method1 = re.findall(r'course/([0-9]{5,8})', course_res.text)
+        # 找所有 course_id="數字" 或 id="數字" 且剛好是 5~8 位數的特徵
+        method2 = re.findall(r'id=["\']([0-9]{5,8})["\']', course_res.text)
+        # 找網頁中所有純粹的 5 到 7 位數數字（Zuvio 課程 ID 通常是 5 或 6 位數）
+        method3 = re.findall(r'\b([0-9]{5,7})\b', course_res.text)
+        
+        # 把所有抓到的可能 ID 混在一起
+        all_possible_ids = method1 + method2 + method3
+        
+        # 排除掉一些固定的系統數字（例如 Zuvio 自己的客服 ID 或版本號，通常沒差，先保留）
+        course_ids = list(set(all_possible_ids))
+        
+        # 【重要安全機制】：如果抓到太多奇怪數字，過濾掉明顯不是課程的（比如太長的數字）
+        course_ids = [cid for cid in course_ids if len(cid) >= 5 and len(cid) <= 7]
+        
         status_report["courses_checked"] = len(course_ids)
         
         if len(course_ids) == 0:
             status_report["status"] = "warning"
-            status_report["message"] = "⚠️ 登入成功，但抓不到任何課程 ID。請確認你的 Zuvio 當前學期確實有課。"
+            status_report["message"] = "⚠️ 登入成功，但地毯式搜索仍找不到任何課程 ID。請確認 Zuvio 內是否有當季課程。"
             return status_report
             
     except Exception as e:
         status_report["status"] = "warning"
         status_report["message"] = f"⚠️ 獲取課程列表發生異常: {str(e)}"
         return status_report
-
+        
     # 逐一檢查點名
     for c_id in course_ids:
         try:
