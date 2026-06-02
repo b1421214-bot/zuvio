@@ -1,71 +1,77 @@
+from flask import Flask, render_template
 import requests
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta, timezone
 
-# 從 GitHub Secrets 讀取資訊
+app = Flask(__name__)
+
 ZUVIO_EMAIL = os.environ.get('ZUVIO_EMAIL')
 ZUVIO_PASSWORD = os.environ.get('ZUVIO_PASSWORD')
-DISCORD_WEBHOOK = os.environ.get('DISCORD_WEBHOOK')
 
-def send_discord(msg):
-    if DISCORD_WEBHOOK:
-        try:
-            requests.post(DISCORD_WEBHOOK, json={"content": msg}, timeout=10)
-        except Exception as e:
-            print(f"Discord 發送失敗: {e}")
-
-def run_check():
-    session = requests.Session()
+def check_zuvio_status():
+    status_report = {
+        "status": "success",
+        "message": "🟢 所有課程巡邏完畢，目前安全。",
+        "time": "",
+        "courses_checked": 0,
+        "active_checkins": []
+    }
     
-    # 1. 登入 Zuvio
+    # 台北時區設定
+    tz = timezone(timedelta(hours=8))
+    status_report["time"] = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+    
+    session = requests.Session()
     login_url = "https://irs.zuvio.com.tw/irs/submitLogin"
     login_data = {'email': ZUVIO_EMAIL, 'password': ZUVIO_PASSWORD}
     
     try:
         res = session.post(login_url, data=login_data)
         if "登入失敗" in res.text:
-            print("❌ Zuvio 登入失敗，請檢查帳密。")
-            return
+            status_report["status"] = "danger"
+            status_report["message"] = "❌ Zuvio 登入失敗，請檢查 GitHub 密鑰設定。"
+            return status_report
     except:
-        print("❌ 網路連線異常")
-        return
+        status_report["status"] = "danger"
+        status_report["message"] = "❌ 連線到 Zuvio 伺服器異常。"
+        return status_report
 
-    # 2. 抓取課程列表
     try:
-        # 取得學生首頁
         course_res = session.get("https://irs.zuvio.com.tw/course/list")
-        # 這裡用最簡單的方式找出所有課程 ID (IRS ID)
-        import re
-        course_ids = re.findall(r'https://irs.zuvio.com.tw/student/course/(\[0-9\]+)', course_res.text)
-        # 去重
-        course_ids = list(set(course_ids))
+        course_ids = list(set(re.findall(r'https://irs.zuvio.com.tw/student/course/([0-9]+)', course_res.text)))
+        status_report["courses_checked"] = len(course_ids)
     except:
-        print("❌ 無法獲取課程列表")
-        return
+        status_report["status"] = "warning"
+        status_report["message"] = "⚠️ 登入成功，但無法獲取課程列表。"
+        return status_report
 
-    current_time = datetime.now().strftime("%H:%M")
-    print(f"✅ 登入成功 | 檢查時間: {current_time} | 找到 {len(course_ids)} 門課程")
-
-    # 3. 逐一檢查課程是否有「點名」
-    found_any = False
     for c_id in course_ids:
         try:
-            # 進入點名頁面檢查
             checkin_url = f"https://irs.zuvio.com.tw/student/course/{c_id}/checkin"
             checkin_res = session.get(checkin_url)
             
-            # 判斷網頁內容是否有「限時簽到」或「簽到中」等字眼 (視 Zuvio 網頁結構而定)
-            # 這裡用最常見的關鍵字判斷
-            if "簽到" in checkin_res.text and "目前不在簽到時間" not in checkin_res.text:
-                msg = f"🚀 【Zuvio 偵測到點名！】\n課程 ID：{c_id}\n時間：{current_time}\n請盡快登入簽到！"
-                send_discord(msg)
-                print(f"🔔 發現點名！ID: {c_id}")
-                found_any = True
+            if "目前不在簽到時間" not in checkin_res.text:
+                if any(k in checkin_res.text for k in ["簽到", "點名", "checkin-methods", "method-item"]):
+                    status_report["active_checkins"].append({
+                        "id": c_id,
+                        "url": checkin_url
+                    })
         except:
             continue
 
-    if not found_any:
-        print("😴 目前所有課程都沒有點名活動。")
+    if status_report["active_checkins"]:
+        status_report["status"] = "danger"
+        status_report["message"] = f"🚨 警報！發現有 {len(status_report['active_checkins'])} 門課程正在點名！"
+        
+    return status_report
 
-if __name__ == "__main__":
-    run_check()
+@app.route('/')
+def home():
+    data = check_zuvio_status()
+    return render_template('index.html', data=data)
+
+if __name__ == '__main__':
+    # 綁定 0.0.0.0 才能讓外部網路連進網頁
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
