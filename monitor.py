@@ -16,7 +16,7 @@ def check_zuvio_status():
         "time": "",
         "courses_checked": 0,
         "active_checkins": [],
-        "debug_html": "" # 新增除錯欄位
+        "debug_html": "" 
     }
     
     tz = timezone(timedelta(hours=8))
@@ -37,30 +37,33 @@ def check_zuvio_status():
         status_report["message"] = f"❌ 連線到 Zuvio 伺服器異常: {str(e)}"
         return status_report
 
-    # 抓取課程列表
+    # 🚀 更改為直接抓取 Zuvio 後台 API 資料包
+    course_ids = []
     try:
-        course_res = session.get("https://irs.zuvio.com.tw/student5/irs/index")
+        # 直接跟後台要課程清單 JSON
+        api_res = session.post("https://irs.zuvio.com.tw/student5/irs/getCourseList")
         
-        # 【核心除錯】：把抓到的網頁前 2000 個字存起來，等一下丟到網頁上給你看
-        # 順便把不必要的空白跟換行刪掉，方便閱讀
-        clean_html = re.sub(r'\s+', ' ', course_res.text)
-        status_report["debug_html"] = clean_html[:2000]
+        # 把 API 回傳的文字倒在除錯區，讓我們知道後台吐了什麼
+        status_report["debug_html"] = api_res.text[:2000]
         
-        # 嘗試撈取 ID
-        course_ids = re.findall(r'course/([0-9]+)', course_res.text)
+        # 從 JSON/字串 中撈出所有符合 5~7 位的課程 ID
+        course_ids = re.findall(r'["\']id["\']\s*:\s*["\']?([0-9]{5,7})["\']?', api_res.text)
+        
+        # 防呆：如果 API 欄位名稱不同，改撈純數字
         if not course_ids:
-            course_ids = re.findall(r'i-content-course-box.*?id=["\']([0-9]+)["\']', course_res.text)
+            course_ids = re.findall(r'\b([0-9]{5,7})\b', api_res.text)
 
         course_ids = list(set(course_ids))
         status_report["courses_checked"] = len(course_ids)
         
         if len(course_ids) == 0:
             status_report["status"] = "warning"
-            status_report["message"] = "⚠️ 登入成功，但仍找不到課程 ID。請看下方『網頁原始碼監測』找尋線索。"
+            status_report["message"] = "⚠️ 登入成功，但 API 沒有回傳任何課程。請檢查下方黑色除錯區。"
+            return status_report
             
     except Exception as e:
         status_report["status"] = "warning"
-        status_report["message"] = f"⚠️ 獲取課程列表發生異常: {str(e)}"
+        status_report["message"] = f"⚠️ 獲取 API 課程列表異常: {str(e)}"
         return status_report
 
     # 巡邏點名
@@ -68,9 +71,13 @@ def check_zuvio_status():
         try:
             checkin_url = f"https://irs.zuvio.com.tw/student5/course/{c_id}/checkin"
             checkin_res = session.get(checkin_url)
+            
             if "目前不在簽到時間" not in checkin_res.text:
-                if any(k in checkin_res.text for k in ["簽到", "點名", "checkin-methods"]):
-                    status_report["active_checkins"].append({"id": c_id, "url": checkin_url})
+                if any(k in checkin_res.text for k in ["簽到", "點名", "checkin-methods", "method-item", "碼", "GPS"]):
+                    status_report["active_checkins"].append({
+                        "id": c_id,
+                        "url": checkin_url
+                    })
         except:
             continue
 
