@@ -43,23 +43,26 @@ def check_zuvio_status():
     status_report["courses_checked"] = end_id - start_id + 1
     
     # 開始精準巡邏
+   # 開始精準巡邏
     for c_id in range(start_id, end_id + 1):
         try:
-            # 升級為你提供的新版 rollcall 路徑！
             checkin_url = f"https://irs.zuvio.com.tw/student5/irs/rollcall/{c_id}"
             checkin_res = session.get(checkin_url)
             
-            # 只要沒顯示「不在簽到時間」，且網頁沒有被導回登入頁
+            # 【新防線 1】：如果這根本不是你的課，直接跳過
+            if any(no_auth in checkin_res.text for no_auth in ["尚未選修", "不屬於", "請先加入", "權限不足", "錯誤", "無此課程"]):
+                continue
+                
+            # 【新防線 2】：只有網頁明確顯示「簽到」相關控制項，且「不在簽到時間」這幾個字沒出現時才算數
             if "目前不在簽到時間" not in checkin_res.text and "登入" not in checkin_res.text:
-                # 判斷點名關鍵字
-                if any(k in checkin_res.text for k in ["簽到", "點名", "rollcall", "click", "碼", "GPS"]):
+                # 必須包含真正的簽到按鈕或輸入框特徵
+                if any(k in checkin_res.text for k in ["我要簽到", "輸入簽到碼", "手動簽到", "GPS簽到", "點名開始"]):
                     status_report["active_checkins"].append({
                         "id": str(c_id),
                         "url": checkin_url
                     })
         except:
             continue
-
     if status_report["active_checkins"]:
         status_report["status"] = "danger"
         status_report["message"] = f"🚨 警報！新版盲巡發現有 {len(status_report['active_checkins'])} 門課程抓到點名訊號！"
