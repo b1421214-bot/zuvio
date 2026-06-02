@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zuvio 自動監測後台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; font-family: 'PingFang TC', sans-serif; }
+        .card-monitor { border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="text-center mb-4">
+                <h1 class="fw-bold text-primary">🤖 Zuvio 點名雷達儀表板</h1>
+                <p class="text-muted">全自動化巡邏監控系統</p>
+            </div>
+            <div class="card card-monitor bg-white p-4 mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="fw-bold mb-0">系統當前狀態</h4>
+                    <span class="badge bg-{{ data.status }} px-3 py-2 fs-6">
+                        {% if data.status == 'success' %}正常監測中{% else %}特別注意{% endif %}
+                    </span>
+                </div>
+                <div class="alert alert-{{ data.status }}">
+                    {{ data.message }}
+                </div>
+                <hr>
+                <div class="row text-center my-3">
+                    <div class="col-6 border-end">
+                        <h5 class="text-muted small text-uppercase">已掃描課程數</h5>
+                        <h2 class="fw-bold text-dark">{{ data.courses_checked }}</h2>
+                    </div>
+                    <div class="col-6">
+                        <h5 class="text-muted small text-uppercase">最後更新時間 (台北)</h5>
+                        <h5 class="fw-bold text-secondary mt-2" style="font-size: 1.1rem;">{{ data.time }}</h5>
+                    </div>
+                </div>
+            </div>
+            <div class="card card-monitor bg-white p-4">
+                <h4 class="fw-bold mb-3 text-danger">🚨 當前進行中點名</h4>
+                {% if data.active_checkins %}
+                    <div class="list-group">
+                        {% for checkin in data.active_checkins %}
+                            <a href="{{ checkin.url }}" target="_blank" class="list-group-item list-group-item-action list-group-item-danger d-flex justify-content-between align-items-center py-3">
+                                <div>
+                                    <strong class="fs-5">課程 ID: {{ checkin.id }}</strong>
+                                    <div class="small text-muted">偵測到點名訊號，點擊前往簽到</div>
+                                </div>
+                                <span class="btn btn-sm btn-danger rounded-pill px-3">前往簽到 →</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <p class="fs-5 mb-0">😴 目前警報解除，沒有任何進行中的點名。</p>
+                    </div>
+                {% endif %}
+            </div>
+            <div class="text-center mt-4">
+                <button onclick="window.location.reload();" class="btn btn-primary px-4 py-2 rounded-pill shadow-sm">
+                    🔄 手動刷新即時狀態
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
